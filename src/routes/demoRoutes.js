@@ -1,21 +1,19 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
+const { parseCsDemo } = require("../services/demoParser");
 
 const router = express.Router();
 
-// Configuração de onde salvar o arquivo
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
   },
   filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
+    cb(null, Date.now() + "-" + file.originalname);
   }
 });
 
-// Filtro: aceitar só .dem
 const fileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname);
   if (ext !== ".dem") {
@@ -26,12 +24,17 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage, fileFilter });
 
-// Rota de upload
-router.post("/upload-demo", upload.single("demo"), (req, res) => {
-  res.json({
-    message: "Demo enviada com sucesso!",
-    file: req.file
-  });
+router.post("/upload-demo", upload.single("demo"), async (req, res) => {
+  try {
+    const result = await parseCsDemo(req.file.path);
+
+    res.json({
+      message: "Demo processada com sucesso",
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;
