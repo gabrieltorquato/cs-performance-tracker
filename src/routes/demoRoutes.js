@@ -1,3 +1,4 @@
+const { generateStats } = require("../services/statsGenerator");
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -35,17 +36,34 @@ router.post("/upload-demo", upload.single("demo"), async (req, res) => {
         rounds: result.rounds,
         playedAt: result.matchDate,
         players: {
-          create: result.players.map(player => ({
+          create: result.players.map(player => {
+            const stats = generateStats();
+
+          return {
             steamId: player.steamId,
             name: player.name,
-            team: player.team
-          }))
-        }
-      },
-      include: {
-        players: true
+            team: player.team,
+            stats: {
+              create: {
+                kills: stats.kills,
+                deaths: stats.deaths,
+                assists: stats.assists,
+                headshots: stats.headshots,
+                adr: stats.adr
+              }
+            }
+          };
+        })
       }
-    });
+    },
+    include: {
+      players: {
+        include: {
+          stats: true
+        }
+      }
+    }
+  });
 
     res.json({
       message: "Partida salva com sucesso",

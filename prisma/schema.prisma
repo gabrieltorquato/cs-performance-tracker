@@ -26,6 +26,21 @@ model Player {
   steamId   String
   name      String
   team      String
+
   matchId   Int
   match     Match  @relation(fields: [matchId], references: [id])
+
+  stats     PlayerStats?
+}
+
+model PlayerStats {
+  id        Int    @id @default(autoincrement())
+  kills     Int
+  deaths    Int
+  assists   Int
+  headshots Int
+  adr       Float
+
+  playerId  Int   @unique
+  player    Player @relation(fields: [playerId], references: [id])
 }
