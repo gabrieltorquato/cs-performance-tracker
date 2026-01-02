@@ -2,3 +2,4 @@ node_modules/
 uploads/
 .env
 /src/generated/prisma
+prisma/dev.db

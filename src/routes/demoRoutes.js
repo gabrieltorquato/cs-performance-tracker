@@ -1,4 +1,3 @@
-const { generateStats } = require("../services/statsGenerator");
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -7,154 +6,136 @@ const { parseCsDemo } = require("../services/demoParser");
 
 const router = express.Router();
 
+/* =========================
+   TESTE DE VIDA
+   ========================= */
+router.get("/test", (req, res) => {
+  res.json({ ok: true });
+});
+
+/* =========================
+   CONFIG UPLOAD
+   ========================= */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "uploads/");
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + "-" + file.originalname);
-  }
+  },
 });
 
 const fileFilter = (req, file, cb) => {
-  const ext = path.extname(file.originalname);
-  if (ext !== ".dem") {
-    return cb(new Error("Apenas arquivos .dem são permitidos"));
+  if (path.extname(file.originalname) !== ".dem") {
+    return cb(new Error("Apenas arquivos .dem"));
   }
   cb(null, true);
 };
 
 const upload = multer({ storage, fileFilter });
 
+/* =========================
+   UPLOAD + SAVE MATCH
+   ========================= */
 router.post("/upload-demo", upload.single("demo"), async (req, res) => {
   try {
     const result = await parseCsDemo(req.file.path);
 
     const match = await prisma.match.create({
       data: {
-        map: result.map,
-        rounds: result.rounds,
-        playedAt: result.matchDate,
+        map: result.map ?? "unknown",
+        rounds: result.rounds ?? 0,
+        playedAt: new Date(),
         players: {
-          create: result.players.map(player => {
-            const stats = generateStats();
-
-          return {
-            steamId: player.steamId,
-            name: player.name,
-            team: player.team,
+          create: result.players.map((p) => ({
+            steamId: p.steamId,
+            name: p.name,
+            team: p.team ?? "UNKNOWN",
             stats: {
               create: {
-                kills: stats.kills,
-                deaths: stats.deaths,
-                assists: stats.assists,
-                headshots: stats.headshots,
-                adr: stats.adr
-              }
-            }
-          };
-        })
-      }
+                kills: p.kills ?? 0,
+                deaths: p.deaths ?? 0,
+                assists: p.assists ?? 0,
+                headshots: p.headshots ?? 0,
+                adr: p.adr ?? 0,
+              },
+            },
+          })),
+        },
+      },
+    });
+
+    res.json({
+      message: "Partida salva com sucesso",
+      matchId: match.id,
+    });
+  } catch (error) {
+    console.error("UPLOAD ERROR:", error);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+});
+
+/* =========================
+   DEBUG – VER BANCO
+   ========================= */
+router.get("/debug/matches", async (req, res) => {
+  const matches = await prisma.match.findMany({
+    include: {
+      players: {
+        include: {
+          stats: true,
+        },
+      },
+    },
+  });
+
+  res.json(matches);
+});
+
+/* =========================
+   HISTÓRICO POR JOGADOR
+   ========================= */
+router.get("/players/:nickname/history", async (req, res) => {
+  const { nickname } = req.params;
+
+  const matches = await prisma.match.findMany({
+    orderBy: {
+      playedAt: "desc",
     },
     include: {
       players: {
         include: {
-          stats: true
-        }
-      }
-    }
+          stats: true,
+        },
+      },
+    },
   });
 
-    res.json({
-      message: "Partida salva com sucesso",
-      match
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: "Erro ao salvar a partida"
+  const response = [];
+
+  for (const match of matches) {
+    const player = match.players.find(
+      (p) =>
+        typeof p.name === "string" &&
+        p.name.trim().toLowerCase() === nickname.trim().toLowerCase()
+    );
+
+    if (!player || !player.stats) continue;
+
+    response.push({
+      playedAt: match.playedAt,
+      map: match.map,
+      kills: player.stats.kills,
+      deaths: player.stats.deaths,
+      assists: player.stats.assists,
+      adr: player.stats.adr,
+      rating: player.stats.rating,
     });
   }
-});
 
-
-// Listar todas as partidas
-router.get("/matches", async (req, res) => {
-  try {
-    const matches = await prisma.match.findMany({
-      orderBy: {
-        playedAt: "desc"
-      },
-      include: {
-        players: true
-      }
-    });
-
-    res.json({
-      total: matches.length,
-      matches
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Erro ao listar partidas" });
-  }
-});
-
-// 1️⃣ Histórico por jogador (ESPECÍFICA)
-router.get("/matches/player/:nickname", async (req, res) => {
-  try {
-    const { nickname } = req.params;
-
-    const matches = await prisma.match.findMany({
-      where: {
-        players: {
-          some: {
-            name: nickname
-          }
-        }
-      },
-      include: {
-        players: true
-      },
-      orderBy: {
-        playedAt: "desc"
-      }
-    });
-
-    res.json({
-      total: matches.length,
-      matches
-    });
-  } catch (error) {
-    console.error("ERRO HISTÓRICO JOGADOR:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-
-// 2️⃣ Detalhes de uma partida (GENÉRICA)
-router.get("/matches/:id", async (req, res) => {
-  try {
-    const matchId = Number(req.params.id);
-
-    if (isNaN(matchId)) {
-      return res.status(400).json({ error: "ID inválido" });
-    }
-
-    const match = await prisma.match.findUnique({
-      where: { id: matchId },
-      include: { players: true }
-    });
-
-    if (!match) {
-      return res.status(404).json({ error: "Partida não encontrada" });
-    }
-
-    res.json(match);
-  } catch (error) {
-    res.status(500).json({ error: "Erro ao buscar partida" });
-  }
+  res.json(response);
 });
 
 module.exports = router;

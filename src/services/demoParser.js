@@ -1,14 +1,22 @@
-/**
- * Parser MOCK de demo CS2
- * ⚠️ Substituível por parser real no futuro
- */
+const maps = [
+  "de_inferno",
+  "de_mirage",
+  "de_nuke",
+  "de_ancient",
+  "de_anubis"
+];
+
+function getRandomMap() {
+  return maps[Math.floor(Math.random() * maps.length)];
+}
+
 async function parseCsDemo(filePath) {
-  // Simula tempo de processamento
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, 300));
 
   return {
-    map: "de_inferno",
+    map: getRandomMap(),
     matchDate: new Date(),
+    rounds: 24,
     players: [
       {
         steamId: "76561198000000001",
@@ -20,8 +28,7 @@ async function parseCsDemo(filePath) {
         name: "player2",
         team: "TR"
       }
-    ],
-    rounds: 24
+    ]
   };
 }
 
