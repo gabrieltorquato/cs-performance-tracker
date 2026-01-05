@@ -3,3 +3,7 @@ uploads/
 .env
 /src/generated/prisma
 prisma/dev.db
+
+# Parser
+parsers/*.exe
+*.dem

@@ -2,7 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const prisma = require("../database/prisma");
-const { parseCsDemo } = require("../services/demoParser");
+const { runDemoParser } = require("../services/parserRunner");
 
 const router = express.Router();
 
@@ -39,25 +39,36 @@ const upload = multer({ storage, fileFilter });
    ========================= */
 router.post("/upload-demo", upload.single("demo"), async (req, res) => {
   try {
-    const result = await parseCsDemo(req.file.path);
+    const demoPath = req.file.path;
+
+    const result = await runDemoParser(demoPath);
 
     const match = await prisma.match.create({
       data: {
         map: result.map ?? "unknown",
-        rounds: result.rounds ?? 0,
+        rounds: result.players[0]?.rounds ?? 0,
         playedAt: new Date(),
         players: {
           create: result.players.map((p) => ({
             steamId: p.steamId,
             name: p.name,
-            team: p.team ?? "UNKNOWN",
+            team: "UNKNOWN",
             stats: {
               create: {
-                kills: p.kills ?? 0,
-                deaths: p.deaths ?? 0,
-                assists: p.assists ?? 0,
-                headshots: p.headshots ?? 0,
-                adr: p.adr ?? 0,
+                kills: p.kills,
+                deaths: p.deaths,
+                assists: p.assists,
+                headshots: p.headshots,
+                adr: p.adr,
+                rating: p.rating,
+                ratingCT: p.ratingCT,
+                ratingTR: p.ratingTR,
+                killsCT: p.killsCT,
+                killsTR: p.killsTR,
+                deathsCT: p.deathsCT,
+                deathsTR: p.deathsTR,
+                roundsCT: p.roundsCT,
+                roundsTR: p.roundsTR,
               },
             },
           })),
@@ -65,15 +76,10 @@ router.post("/upload-demo", upload.single("demo"), async (req, res) => {
       },
     });
 
-    res.json({
-      message: "Partida salva com sucesso",
-      matchId: match.id,
-    });
+    res.json({ message: "Partida processada com sucesso", matchId: match.id });
   } catch (error) {
     console.error("UPLOAD ERROR:", error);
-    res.status(500).json({
-      error: error.message,
-    });
+    res.status(500).json({ error: "Erro ao processar demo" });
   }
 });
 
