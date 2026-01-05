@@ -4,6 +4,6 @@ uploads/
 /src/generated/prisma
 prisma/dev.db
 
-# Parser
-parsers/*.exe
-*.dem
+# Prisma / SQLite
+prisma/dev.db
+prisma/prisma/dev.db
