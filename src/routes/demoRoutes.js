@@ -1,147 +1,121 @@
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
-const prisma = require("../database/prisma");
-const { runDemoParser } = require("../services/parserRunner");
+const prisma = require("../database/client");
+const { runParser } = require("../parsers/runParser");
 
 const router = express.Router();
 
-/* =========================
-   TESTE DE VIDA
-   ========================= */
-router.get("/test", (req, res) => {
-  res.json({ ok: true });
+// Configuração de upload
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, "uploads/");
+    },
+    filename: (req, file, cb) => {
+      cb(null, Date.now() + "-" + file.originalname);
+    },
+  }),
 });
 
-/* =========================
-   CONFIG UPLOAD
-   ========================= */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-
-const fileFilter = (req, file, cb) => {
-  if (path.extname(file.originalname) !== ".dem") {
-    return cb(new Error("Apenas arquivos .dem"));
-  }
-  cb(null, true);
-};
-
-const upload = multer({ storage, fileFilter });
-
-/* =========================
-   UPLOAD + SAVE MATCH
-   ========================= */
+/**
+ * UPLOAD + PARSE + SALVAR NO BANCO
+ */
 router.post("/upload-demo", upload.single("demo"), async (req, res) => {
   try {
-    const demoPath = req.file.path;
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhum arquivo enviado" });
+    }
 
-    const result = await runDemoParser(demoPath);
+    const demoPath = path.resolve(req.file.path);
+
+    // roda parser em Go
+    const result = await runParser(demoPath);
+
+    if (!result || !result.players || result.players.length === 0) {
+      return res.status(400).json({ error: "Parser não retornou jogadores" });
+    }
+
+    const playersToCreate = result.players.map((p) => ({
+      steamId: p.steamId,
+      name: p.name,
+      team: p.team || "UNKNOWN",
+
+      stats: {
+        create: {
+          kills: p.kills || 0,
+          deaths: p.deaths || 0,
+          assists: p.assists || 0,
+          headshots: p.headshots || 0,
+          adr: p.adr || 0,
+          killsCT: p.killsCT || 0,
+          killsTR: p.killsTR || 0,
+          deathsCT: p.deathsCT || 0,
+          deathsTR: p.deathsTR || 0,
+          roundsCT: p.roundsCT || 0,
+          roundsTR: p.roundsTR || 0,
+          ratingCT: p.ratingCT || 0,
+          ratingTR: p.ratingTR || 0,
+        },
+},
+    }));
 
     const match = await prisma.match.create({
       data: {
-        map: result.map ?? "unknown",
-        rounds: result.players[0]?.rounds ?? 0,
+        map: result.map || "unknown",
         playedAt: new Date(),
-        players: {
-          create: result.players.map((p) => ({
-            steamId: p.steamId,
-            name: p.name,
-            team: "UNKNOWN",
-            stats: {
-              create: {
-                kills: p.kills,
-                deaths: p.deaths,
-                assists: p.assists,
-                headshots: p.headshots,
-                adr: p.adr,
-                rating: p.rating,
-                ratingCT: p.ratingCT,
-                ratingTR: p.ratingTR,
-                killsCT: p.killsCT,
-                killsTR: p.killsTR,
-                deathsCT: p.deathsCT,
-                deathsTR: p.deathsTR,
-                roundsCT: p.roundsCT,
-                roundsTR: p.roundsTR,
-              },
-            },
-          })),
-        },
+        players: { create: playersToCreate },
+        rounds: 0, // or whatever the initial value should be
       },
     });
 
-    res.json({ message: "Partida processada com sucesso", matchId: match.id });
-  } catch (error) {
-    console.error("UPLOAD ERROR:", error);
-    res.status(500).json({ error: "Erro ao processar demo" });
+    return res.json({ ok: true, matchId: match.id });
+  } catch (err) {
+    console.error("UPLOAD ERROR:", err);
+    return res.status(500).json({ error: err.toString() });
   }
 });
 
-/* =========================
-   DEBUG – VER BANCO
-   ========================= */
-router.get("/debug/matches", async (req, res) => {
-  const matches = await prisma.match.findMany({
-    include: {
-      players: {
-        include: {
-          stats: true,
-        },
-      },
-    },
-  });
-
-  res.json(matches);
-});
-
-/* =========================
-   HISTÓRICO POR JOGADOR
-   ========================= */
+/**
+ * HISTÓRICO DO JOGADOR
+ */
 router.get("/players/:nickname/history", async (req, res) => {
-  const { nickname } = req.params;
+  try {
+    const nickname = req.params.nickname;
 
-  const matches = await prisma.match.findMany({
-    orderBy: {
-      playedAt: "desc",
-    },
-    include: {
-      players: {
-        include: {
-          stats: true,
-        },
+    const stats = await prisma.playerStats.findMany({
+      where: {
+        player: {
+          name: nickname
+        }
       },
-    },
-  });
-
-  const response = [];
-
-  for (const match of matches) {
-    const player = match.players.find(
-      (p) =>
-        typeof p.name === "string" &&
-        p.name.trim().toLowerCase() === nickname.trim().toLowerCase()
-    );
-
-    if (!player || !player.stats) continue;
-
-    response.push({
-      playedAt: match.playedAt,
-      map: match.map,
-      kills: player.stats.kills,
-      deaths: player.stats.deaths,
-      assists: player.stats.assists,
-      adr: player.stats.adr,
-      rating: player.stats.rating,
+      include: {
+        player: {
+          include: {
+            match: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: "desc"
+      }
     });
+
+    const formatted = stats.map((s) => ({
+      playedAt: s.player.match.playedAt,
+      map: s.player.match.map,
+      kills: s.kills,
+      deaths: s.deaths,
+      assists: s.assists,
+      adr: s.adr,
+      rating: s.rating
+    }));
+
+    return res.json(formatted);
+
+  } catch (err) {
+    console.error("HISTORY ERROR:", err);
+    return res.status(500).json({ error: err.toString() });
   }
-
-  res.json(response);
 });
-
 module.exports = router;

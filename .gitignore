@@ -1,9 +1,16 @@
+# Node
 node_modules/
-uploads/
+
+# Env
 .env
-/src/generated/prisma
-prisma/dev.db
+
+# Uploads de demo
+uploads/
 
 # Prisma / SQLite
 prisma/dev.db
 prisma/prisma/dev.db
+
+# Binários / parser
+*.exe
+parsers/
